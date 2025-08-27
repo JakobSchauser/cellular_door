@@ -8,7 +8,7 @@ let isPlaying = false;
 let animationSpeed = 1.; // Slower default speed
 let lastTime = 0;
 let crossSectionMode = 'full'; // 'full', 'horizontal', 'vertical'
-let currentDataset = 'toshow.csv'; // Track current dataset
+let currentDataset = 'drosophila.csv'; // Track current dataset
 let totalFrames = 120; // Will be updated when loading data
 let maxPoints = 5000; // Will be updated when loading data
 let colorByType = false; // Track if coloring by type is enabled
@@ -247,11 +247,20 @@ async function loadCSVData() {
         typeData = [];
         
         // Check if we have type data by examining the first data line
-        const sampleLine = lines[1];
-        const sampleCoords = sampleLine.split(',');
-        hasTypeData = sampleCoords.length === 4; // x, y, z, type
+        if (lines.length > 1) {
+            const sampleLine = lines[1];
+            const sampleCoords = sampleLine.split(',');
+            hasTypeData = sampleCoords.length >= 4; // x, y, z, and possibly type
+            
+            // DEBUG: Log the first few lines to see the format
+            console.log('First data line:', sampleLine);
+            console.log('Sample coords:', sampleCoords);
+            console.log('Number of columns:', sampleCoords.length);
+        } else {
+            hasTypeData = false;
+        }
         
-        console.log(`Dataset has type data: ${hasTypeData}`);
+        console.log(`Dataset ${currentDataset} has type data: ${hasTypeData}`);
         
         // Parse CSV data into frames (skip first line)
         let lineIndex = 1; // Start from second line
@@ -284,6 +293,7 @@ async function loadCSVData() {
         document.querySelector('#info div:nth-child(2)').textContent = `Total Frames: ${totalFrames}`;
         
         // Update color button visibility and state
+        console.log('Setting color button visibility to:', hasTypeData ? 'visible' : 'hidden');
         colorToggleBtn.style.display = hasTypeData ? 'inline-block' : 'none';
         colorToggleBtn.classList.remove('active');
         colorByType = false;
@@ -321,6 +331,22 @@ function createPointCloud() {
     });
 
     points = new THREE.InstancedMesh(sphereGeometry, sphereMaterial, maxPoints);
+    
+    // DEBUG: Check if instanceColor is supported
+    console.log('Three.js version supports instanceColor:', !!points.instanceColor);
+    
+    // Enable instance color support - this might be the issue
+    points.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(maxPoints * 3), 3);
+    
+    // Initialize all colors to white/grey to test
+    const defaultColor = new THREE.Color(0x888888);
+    for (let i = 0; i < maxPoints; i++) {
+        points.setColorAt(i, defaultColor);
+    }
+    points.instanceColor.needsUpdate = true;
+    
+    console.log('Created point cloud with', maxPoints, 'instances');
+    console.log('instanceColor attribute created:', !!points.instanceColor);
     
     // Set initial positions and colors
     updateInstancedMeshPositions(0);
