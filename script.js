@@ -85,9 +85,17 @@ function init() {
     pointLight.position.set(0, 30, 30);
     scene.add(pointLight);
 
-    // Renderer
-    renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Renderer optimized for maximum performance
+    renderer = new THREE.WebGLRenderer({ 
+        antialias: false, // Disable for better performance
+        powerPreference: "high-performance",
+        failIfMajorPerformanceCaveat: false,
+        preserveDrawingBuffer: false,
+        alpha: false,
+        stencil: false // Disable stencil buffer for performance
+    });
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit pixel ratio for performance
     document.getElementById('container').appendChild(renderer.domElement);
 
     // Create orientation gizmo
@@ -107,29 +115,33 @@ function init() {
 }
 
 function setupOrbitControls() {
-    // Create OrbitControls for smooth camera movement
+    // Create OrbitControls for ultra-smooth performance
     controls = new THREE.OrbitControls(camera, renderer.domElement);
     
-    // Configure controls for statue-like viewing
+    // Configure controls for best performance
     controls.target.set(0, 0, 0); // Look at center of the points
-    controls.enableDamping = true; // Smooth motion
-    controls.dampingFactor = 0.05;
+    controls.enableDamping = false; // Disable for better performance
     
-    // Prevent rolling - keep camera upright
+    // Reduced rotation sensitivity for smoother feel
     controls.enableRotate = true;
-    controls.rotateSpeed = 0.5;
+    controls.rotateSpeed = 0.3; // Lower speed for smoother rotation
     
-    // Allow zooming
+    // Optimized zooming
     controls.enableZoom = true;
-    controls.zoomSpeed = 1.0;
+    controls.zoomSpeed = 0.6; // Slower zoom for control
     controls.minDistance = 15;  // Don't get too close
     controls.maxDistance = 300; // Don't get too far
     
+    // Disable panning to reduce complexity
+    controls.enablePan = false;
     
-    // Allow panning (optional - you might want to disable this)
-    controls.enablePan = false; // Disable panning to keep focused on statue
+    // Touch controls for mobile - simplified
+    controls.touches = {
+        ONE: THREE.TOUCH.ROTATE,
+        TWO: THREE.TOUCH.DOLLY_PAN
+    };
     
-    // Vertical rotation limits (prevent going under the statue)
+    // Vertical rotation limits
     controls.minPolarAngle = 0.1; // Radians from top
     controls.maxPolarAngle = Math.PI - 0.1; // Radians from top
     
@@ -150,7 +162,7 @@ function createOrientationGizmo() {
     gizmoCamera.position.set(0, 0, 5);
 
     // Create the gizmo renderer
-    gizmoRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    gizmoRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
     gizmoRenderer.setSize(80, 80);
     gizmoRenderer.setClearColor(0x000000, 0.1); // Semi-transparent background
     document.getElementById('orientation-gizmo').appendChild(gizmoRenderer.domElement);
@@ -229,7 +241,18 @@ function updateGizmoOrientation() {
 
 async function loadCSVData() {
     try {
-        const response = await fetch(currentDataset);
+        const response = await fetch(`${currentDataset}?v=${Date.now()}`, {
+            method: 'GET',
+            headers: {
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const csvText = await response.text();
         
         const lines = csvText.trim().split('\n');
@@ -324,8 +347,8 @@ function createPointCloud() {
         scene.remove(points);
     }
 
-    // Create instanced mesh for spheres
-    const sphereGeometry = new THREE.SphereGeometry(1.5, 8, 6); // Larger spheres 
+    // Create instanced mesh for spheres - Ultra lightweight for smooth rotation
+    const sphereGeometry = new THREE.SphereGeometry(1.5, 6, 4); // Very low poly for performance
     const sphereMaterial = new THREE.MeshLambertMaterial({ 
         color: 0x888888, // Default grey color
     });
@@ -526,15 +549,12 @@ function setCrossSectionMode(mode) {
 function animate(time = 0) {
     requestAnimationFrame(animate);
 
-    // Update OrbitControls for smooth damping
-    if (controls) {
-        controls.update();
-    }
+    // No need to update controls since damping is disabled for better performance
 
     // Animation logic
     if (isPlaying && pointsData.length > 0) {
         const deltaTime = time - lastTime;
-        if (deltaTime >= (2000 / (30 * animationSpeed))) { // 30 FPS adjusted by speed
+        if (deltaTime >= (2000 / (20 * animationSpeed))) { // 20 FPS for better performance
             currentFrame = (currentFrame + 1) % pointsData.length;
             updateFrame(currentFrame);
             lastTime = time;
@@ -551,5 +571,21 @@ function animate(time = 0) {
 
 // Start the application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    init();
+    // Detect iOS
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    console.log('Running on iOS:', isIOS);
+    
+    // Add iOS-specific handling
+    if (isIOS) {
+        // Reduce quality for iOS
+        // maxPoints = Math.min(maxPoints, 2000); // Further reduced for iOS smooth performance
+        console.log('iOS detected: reducing max points to', maxPoints);
+    }
+    
+    try {
+        init();
+    } catch (error) {
+        console.error('Initialization error:', error);
+        alert('Failed to initialize 3D visualization. Your device may not support WebGL.');
+    }
 });
