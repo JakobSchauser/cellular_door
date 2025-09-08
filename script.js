@@ -548,7 +548,7 @@ function createPointCloud() {
     const sphereGeometry = new THREE.SphereGeometry(1.0, 16, 12); // Smaller radius (1.5 -> 1.0) and higher quality (6,4 -> 16,12)
     const sphereMaterial = new THREE.MeshPhongMaterial({ 
         color: 0x888888, // Default grey color
-        shininess: 10,
+        shininess: 2,
         specular: 0x111111
     });
 
