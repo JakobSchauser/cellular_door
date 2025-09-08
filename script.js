@@ -419,21 +419,24 @@ function createLegend() {
         }
     }
 
+    const isMobile = window.innerWidth <= 768;
     const legend = document.createElement('div');
     legend.id = 'color-legend';
     legend.style.cssText = `
         position: absolute;
-        top: 120px;
-        right: 20px;
+        top: ${isMobile ? '10px' : '120px'};
+        right: ${isMobile ? '10px' : '20px'};
         background: rgba(0, 0, 0, 0.8);
         color: white;
-        padding: 15px;
+        padding: ${isMobile ? '10px' : '15px'};
         border-radius: 8px;
-        font-size: 12px;
+        font-size: ${isMobile ? '10px' : '12px'};
         font-family: Arial, sans-serif;
-        max-width: 220px;
+        max-width: ${isMobile ? '150px' : '220px'};
         z-index: 1000;
         border: 1px solid #333;
+        max-height: ${isMobile ? '40vh' : 'none'};
+        overflow-y: auto;
     `;
     
     const title = document.createElement('div');
@@ -451,13 +454,14 @@ function createLegend() {
     
     Array.from(usedTypes).sort((a, b) => a - b).forEach(typeValue => {
         const entry = document.createElement('div');
-        entry.style.cssText = 'display: flex; align-items: center; margin-bottom: 7px;';
+        entry.style.cssText = `display: flex; align-items: center; margin-bottom: ${isMobile ? '5px' : '7px'};`;
 
         // Checkbox
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.checked = window.visibleTypes[typeValue] !== false;
-        checkbox.style.marginRight = '8px';
+        checkbox.style.marginRight = '6px';
+        checkbox.style.transform = isMobile ? 'scale(0.8)' : 'scale(1)';
         checkbox.addEventListener('change', () => {
             window.visibleTypes[typeValue] = checkbox.checked;
             // Update the visualization
@@ -469,14 +473,16 @@ function createLegend() {
         // Circle color box
         const colorCircle = document.createElement('div');
         const colorIndex = typeValue % typeColors.length;
+        const circleSize = isMobile ? '12px' : '16px';
         colorCircle.style.cssText = `
-            width: 16px;
-            height: 16px;
+            width: ${circleSize};
+            height: ${circleSize};
             background-color: #${typeColors[colorIndex].toString(16).padStart(6, '0')};
-            margin-right: 8px;
+            margin-right: 6px;
             border: 1px solid #666;
             border-radius: 50%;
             display: inline-block;
+            flex-shrink: 0;
         `;
 
         // Label
@@ -484,6 +490,8 @@ function createLegend() {
         const typeName = typeNames[typeValue] || `Type ${typeValue}`;
         label.textContent = typeName;
         label.style.color = '#fff';
+        label.style.fontSize = isMobile ? '9px' : '12px';
+        label.style.lineHeight = '1.2';
 
         entry.appendChild(checkbox);
         entry.appendChild(colorCircle);
@@ -686,6 +694,14 @@ function setupEventListeners() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        // Recreate legend with appropriate mobile styling
+        if (document.getElementById('color-legend')) {
+            createLegend();
+        }
+        
+        // Update mobile layout if needed
+        setupMobileLayout();
     });
 }
 
@@ -752,6 +768,9 @@ document.addEventListener('DOMContentLoaded', () => {
             datasetSelect.value = csvFile;
         }
     }
+    
+    // Setup mobile layout
+    setupMobileLayout();
     
     // Detect iOS
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -848,5 +867,70 @@ function hideLoadingScreen() {
     const loadingScreen = document.getElementById('loading-screen');
     if (loadingScreen) {
         loadingScreen.remove();
+    }
+}
+
+// Add mobile detection and responsive controls
+function setupMobileLayout() {
+    const isMobile = window.innerWidth <= 768 || /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+        // Create mobile-friendly control layout
+        createMobileControls();
+    }
+}
+
+function createMobileControls() {
+    // Create a collapsible control panel for mobile
+    const controlPanel = document.getElementById('controls');
+    if (controlPanel) {
+        controlPanel.style.cssText = `
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            transform: translateY(calc(100% - 60px));
+            transition: transform 0.3s ease;
+            z-index: 1000;
+            max-height: 70vh;
+            overflow-y: auto;
+        `;
+
+        // Add toggle button for mobile controls
+        const toggleButton = document.createElement('div');
+        toggleButton.textContent = '⚙️ Controls';
+        toggleButton.style.cssText = `
+            position: absolute;
+            top: -50px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 20px 20px 0 0;
+            cursor: pointer;
+            font-size: 14px;
+            border: none;
+        `;
+
+        let isExpanded = false;
+        toggleButton.addEventListener('click', () => {
+            isExpanded = !isExpanded;
+            controlPanel.style.transform = isExpanded ? 'translateY(0)' : 'translateY(calc(100% - 60px))';
+            toggleButton.textContent = isExpanded ? '✕ Close' : '⚙️ Controls';
+        });
+
+        controlPanel.appendChild(toggleButton);
+    }
+
+    // Move legend to a better position on mobile
+    const existingLegend = document.getElementById('color-legend');
+    if (existingLegend) {
+        existingLegend.style.top = '10px';
+        existingLegend.style.right = '10px';
+        existingLegend.style.maxWidth = '150px';
+        existingLegend.style.fontSize = '10px';
     }
 }
