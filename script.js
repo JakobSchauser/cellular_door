@@ -13,6 +13,7 @@ let totalFrames = 120; // Will be updated when loading data
 let maxPoints = 5000; // Will be updated when loading data
 let colorByType = false; // Track if coloring by type is enabled
 let hasTypeData = false; // Track if current dataset has type information
+let typeNames = {}; // Store type value to name mapping
 
 // Controls
 const datasetSelect = document.getElementById('datasetSelect');
@@ -48,10 +49,11 @@ function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x111111);
 
-    // Camera
+    // Camera - Try different initial position
     camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 0, 120); // Start looking straight down Z-axis, more zoomed out
+    camera.position.set(0, -120, 0); // Changed to look from negative Y axis (from below looking up)
     camera.lookAt(0, 0, 0);
+    camera.up.set(0, 0, 1); // Set Z-axis as up vector
 
     // Add lighting for the 3D spheres
     const ambientLight = new THREE.AmbientLight(0x606060, 1.2); // Brighter ambient light
@@ -150,8 +152,9 @@ function setupOrbitControls() {
         updateGizmoOrientation();
     });
     
-    // Set initial position
-    camera.position.set(0, 0, -120); // Looking straight down Z-axis, more zoomed out
+    // Set initial position to match init()
+    camera.position.set(0, -120, 0); // Match the init() position
+    camera.up.set(0, 0, 1); // Ensure Z is up
     controls.update();
 }
 
@@ -265,28 +268,50 @@ async function loadCSVData() {
         
         console.log(`Found ${totalFrames} frames with point counts:`, pointsPerFrame);
         
+        // Parse the second line for cell type names if it exists
+        typeNames = {};
+        let dataStartLine = 1; // Default start line for data
+        let hasExplicitTypeNames = false;
+        
+        if (lines.length > 1) {
+            const secondLine = lines[1].trim();
+            // Check if second line contains type definitions (format: "val: name, val: name")
+            if (secondLine.includes(':') && secondLine.includes(',')) {
+                console.log('Found type definitions:', secondLine);
+                
+                // Parse type definitions
+                const typeDefs = secondLine.split(',').map(def => def.trim());
+                for (const typeDef of typeDefs) {
+                    const [val, name] = typeDef.split(':').map(s => s.trim());
+                    if (val && name) {
+                        typeNames[parseInt(val)] = name;
+                    }
+                }
+                
+                console.log('Parsed type names:', typeNames);
+                dataStartLine = 2; // Data starts from third line
+                hasTypeData = Object.keys(typeNames).length > 0;
+                hasExplicitTypeNames = true;
+            } else {
+                // Check if we have type data by examining the first data line
+                const sampleCoords = secondLine.split(',');
+                hasTypeData = sampleCoords.length >= 4; // x, y, z, and possibly type
+                dataStartLine = 1; // Data starts from second line
+                hasExplicitTypeNames = false;
+            }
+        } else {
+            hasTypeData = false;
+            hasExplicitTypeNames = false;
+        }
+        
         // Clear existing data
         pointsData = [];
         typeData = [];
         
-        // Check if we have type data by examining the first data line
-        if (lines.length > 1) {
-            const sampleLine = lines[1];
-            const sampleCoords = sampleLine.split(',');
-            hasTypeData = sampleCoords.length >= 4; // x, y, z, and possibly type
-            
-            // DEBUG: Log the first few lines to see the format
-            console.log('First data line:', sampleLine);
-            console.log('Sample coords:', sampleCoords);
-            console.log('Number of columns:', sampleCoords.length);
-        } else {
-            hasTypeData = false;
-        }
+        // Parse CSV data into frames
+        let lineIndex = dataStartLine;
+        const foundTypes = new Set(); // Track what types we actually find in the data
         
-        console.log(`Dataset ${currentDataset} has type data: ${hasTypeData}`);
-        
-        // Parse CSV data into frames (skip first line)
-        let lineIndex = 1; // Start from second line
         for (let frame = 0; frame < totalFrames; frame++) {
             const frameData = [];
             const frameTypes = [];
@@ -298,9 +323,12 @@ async function loadCSVData() {
                     frameData.push(coords[0], coords[1], coords[2]); // x, y, z
                     
                     if (hasTypeData && coords.length >= 4) {
-                        frameTypes.push(coords[3]); // type
+                        const typeValue = coords[3];
+                        frameTypes.push(typeValue); // type
+                        foundTypes.add(typeValue);
                     } else {
                         frameTypes.push(0); // default type
+                        foundTypes.add(0);
                     }
                     lineIndex++;
                 }
@@ -308,6 +336,27 @@ async function loadCSVData() {
             pointsData.push(frameData);
             typeData.push(frameTypes);
         }
+        
+        // Generate default type names if none were provided explicitly
+        if (hasTypeData && !hasExplicitTypeNames) {
+            console.log('No explicit type names found, generating default names for types:', Array.from(foundTypes));
+            typeNames = {};
+            foundTypes.forEach(typeValue => {
+                typeNames[typeValue] = `Cell type ${typeValue}`;
+            });
+        }
+        
+        // Even if we had explicit type names, fill in any missing ones
+        if (hasTypeData) {
+            foundTypes.forEach(typeValue => {
+                if (!(typeValue in typeNames)) {
+                    typeNames[typeValue] = `Cell type ${typeValue}`;
+                }
+            });
+        }
+        
+        console.log(`Dataset ${currentDataset} has type data: ${hasTypeData}`);
+        console.log('Final type names mapping:', typeNames);
         
         console.log(`Loaded ${pointsData.length} frames with varying point counts`);
         
@@ -320,6 +369,9 @@ async function loadCSVData() {
         colorToggleBtn.style.display = hasTypeData ? 'inline-block' : 'none';
         colorToggleBtn.classList.remove('active');
         colorByType = false;
+        
+        // Hide legend initially
+        hideLegend();
         
         // Update slider max value and reset to frame 0
         timeSlider.max = totalFrames - 1;
@@ -339,6 +391,151 @@ async function loadCSVData() {
     }
 }
 
+// Add legend functions
+function createLegend() {
+    // Remove existing legend if it exists
+    const existingLegend = document.getElementById('color-legend');
+    if (existingLegend) {
+        existingLegend.remove();
+    }
+
+    if (!hasTypeData || Object.keys(typeNames).length === 0) return;
+
+    // Track which types are visible
+    if (!window.visibleTypes) {
+        window.visibleTypes = {};
+    }
+    // Initialize all types as visible if not set
+    for (const typeValue of Object.keys(typeNames)) {
+        if (!(typeValue in window.visibleTypes)) {
+            window.visibleTypes[typeValue] = true;
+        }
+    }
+
+    const legend = document.createElement('div');
+    legend.id = 'color-legend';
+    legend.style.cssText = `
+        position: absolute;
+        top: 120px;
+        right: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 15px;
+        border-radius: 8px;
+        font-size: 12px;
+        font-family: Arial, sans-serif;
+        max-width: 220px;
+        z-index: 1000;
+        border: 1px solid #333;
+    `;
+    
+    const title = document.createElement('div');
+    title.textContent = 'Cell Types';
+    title.style.cssText = 'font-weight: bold; margin-bottom: 10px; color: #fff;';
+    legend.appendChild(title);
+    
+    // Create legend entries for each type
+    const usedTypes = new Set();
+    for (const frameTypes of typeData) {
+        for (const type of frameTypes) {
+            usedTypes.add(type);
+        }
+    }
+    
+    Array.from(usedTypes).sort((a, b) => a - b).forEach(typeValue => {
+        const entry = document.createElement('div');
+        entry.style.cssText = 'display: flex; align-items: center; margin-bottom: 7px;';
+
+        // Checkbox
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = window.visibleTypes[typeValue] !== false;
+        checkbox.style.marginRight = '8px';
+        checkbox.addEventListener('change', () => {
+            window.visibleTypes[typeValue] = checkbox.checked;
+            // Update the visualization
+            if (points && pointsData.length > 0) {
+                updateInstancedMeshPositions(currentFrame);
+            }
+        });
+
+        // Circle color box
+        const colorCircle = document.createElement('div');
+        const colorIndex = typeValue % typeColors.length;
+        colorCircle.style.cssText = `
+            width: 16px;
+            height: 16px;
+            background-color: #${typeColors[colorIndex].toString(16).padStart(6, '0')};
+            margin-right: 8px;
+            border: 1px solid #666;
+            border-radius: 50%;
+            display: inline-block;
+        `;
+
+        // Label
+        const label = document.createElement('span');
+        const typeName = typeNames[typeValue] || `Type ${typeValue}`;
+        label.textContent = typeName;
+        label.style.color = '#fff';
+
+        entry.appendChild(checkbox);
+        entry.appendChild(colorCircle);
+        entry.appendChild(label);
+        legend.appendChild(entry);
+    });
+    
+    document.body.appendChild(legend);
+}
+
+// Update updateInstancedMeshPositions to respect visibleTypes and cross-sections
+function updateInstancedMeshPositions(frame) {
+    if (!points || pointsData.length === 0) return;
+    const positions = pointsData[frame];
+    const types = typeData[frame];
+    let visibleCount = 0;
+
+    for (let i = 0; i < maxPoints; i++) {
+        if (i < positions.length / 3) {
+            const type = types[i] || 0;
+            const x = positions[i * 3];
+            const y = positions[i * 3 + 1];
+            const z = positions[i * 3 + 2];
+            
+            // Check if this point should be visible based on type
+            if (!window.visibleTypes || window.visibleTypes[type] !== false) {
+                // Apply cross-section filtering
+                let showPoint = true;
+                
+                if (crossSectionMode === 'horizontal') {
+                    // Show only points on one side of XY plane (z >= 0)
+                    showPoint = x >= 0;
+                } else if (crossSectionMode === 'vertical') {
+                    // Show only points on one side of XZ plane (y >= 0)
+                    showPoint = y >= 0;
+                }
+                // 'full' mode shows all points (showPoint remains true)
+                
+                if (showPoint) {
+                    points.setMatrixAt(visibleCount, new THREE.Matrix4().setPosition(x, y, z));
+                    
+                    // Set color by type if enabled
+                    if (colorByType && hasTypeData) {
+                        const colorIndex = type % typeColors.length;
+                        points.setColorAt(visibleCount, new THREE.Color(typeColors[colorIndex]));
+                    } else {
+                        points.setColorAt(visibleCount, new THREE.Color(0x888888));
+                    }
+                    visibleCount++;
+                }
+            }
+        }
+    }
+    
+    points.count = visibleCount;
+    points.instanceMatrix.needsUpdate = true;
+    if (points.instanceColor) points.instanceColor.needsUpdate = true;
+}
+
 function createPointCloud() {
     if (pointsData.length === 0) return;
 
@@ -347,10 +544,12 @@ function createPointCloud() {
         scene.remove(points);
     }
 
-    // Create instanced mesh for spheres - Ultra lightweight for smooth rotation
-    const sphereGeometry = new THREE.SphereGeometry(1.5, 6, 4); // Very low poly for performance
-    const sphereMaterial = new THREE.MeshLambertMaterial({ 
+    // Create instanced mesh for spheres - Higher quality geometry
+    const sphereGeometry = new THREE.SphereGeometry(1.0, 16, 12); // Smaller radius (1.5 -> 1.0) and higher quality (6,4 -> 16,12)
+    const sphereMaterial = new THREE.MeshPhongMaterial({ 
         color: 0x888888, // Default grey color
+        shininess: 10,
+        specular: 0x111111
     });
 
     points = new THREE.InstancedMesh(sphereGeometry, sphereMaterial, maxPoints);
@@ -379,69 +578,6 @@ function createPointCloud() {
     updateFrameDisplay();
 }
 
-function updateInstancedMeshPositions(frame) {
-    if (!points || !pointsData[frame]) return;
-    
-    const frameData = pointsData[frame];
-    const frameTypes = typeData[frame] || [];
-    const matrix = new THREE.Matrix4();
-    const color = new THREE.Color();
-    let visibleCount = 0;
-    
-    const currentFramePointCount = frameData.length / 3; // Each point has x,y,z
-    
-    for (let i = 0; i < currentFramePointCount; i++) {
-        const x = frameData[i * 3];
-        const y = frameData[i * 3 + 1];
-        const z = frameData[i * 3 + 2];
-        
-        // Rotate 90 degrees around X-axis: (x, y, z) -> (x, -z, y)
-        const rotatedX = -x;
-        const rotatedY = z;
-        const rotatedZ = y;
-        
-        // Check cross-section visibility
-        let isVisible = true;
-        if (crossSectionMode === 'horizontal') {
-            // Show only points where X > 0 (horizontal cross-section)
-            isVisible = rotatedX < 0;
-        } else if (crossSectionMode === 'vertical') {
-            // Show only points where Z > 0 (vertical cross-section)
-            isVisible = rotatedZ > 0;
-        }
-        
-        if (isVisible) {
-            matrix.setPosition(rotatedX, rotatedY, rotatedZ);
-            points.setMatrixAt(visibleCount, matrix);
-            
-            // Set color based on type if enabled
-            if (colorByType && hasTypeData && frameTypes[i] !== undefined) {
-                const typeIndex = frameTypes[i] % typeColors.length;
-                color.setHex(typeColors[typeIndex]);
-            } else {
-                color.setHex(0x888888); // Default grey
-            }
-            points.setColorAt(visibleCount, color);
-            
-            visibleCount++;
-        }
-    }
-    
-    // Hide remaining instances by setting them far away
-    const hiddenMatrix = new THREE.Matrix4();
-    hiddenMatrix.setPosition(10000, 10000, 10000); // Far away position
-    const hiddenColor = new THREE.Color(0x888888);
-    for (let i = visibleCount; i < maxPoints; i++) {
-        points.setMatrixAt(i, hiddenMatrix);
-        points.setColorAt(i, hiddenColor);
-    }
-    
-    points.instanceMatrix.needsUpdate = true;
-    if (points.instanceColor) {
-        points.instanceColor.needsUpdate = true;
-    }
-}
-
 function updateFrame(frame) {
     if (!points || !pointsData[frame]) return;
     
@@ -459,6 +595,7 @@ function updateFrameDisplay() {
 function setupEventListeners() {
     datasetSelect.addEventListener('change', (e) => {
         currentDataset = e.target.value;
+        updateURL(currentDataset.replace('.csv', '')); // Update URL
         loadCSVData();
     });
 
@@ -485,7 +622,7 @@ function setupEventListeners() {
         pauseBtn.disabled = true;
         
         // Reset camera position and controls
-        camera.position.set(0, 0, 120);
+        camera.position.set(0, -120, 0);
         controls.target.set(0, 0, 0);
         controls.update();
     });
@@ -518,6 +655,13 @@ function setupEventListeners() {
         colorByType = !colorByType;
         colorToggleBtn.classList.toggle('active', colorByType);
         
+        // Show/hide legend based on color mode
+        if (colorByType && hasTypeData) {
+            showLegend();
+        } else {
+            hideLegend();
+        }
+        
         // Update the current frame to apply the color changes
         if (points && pointsData.length > 0) {
             updateInstancedMeshPositions(currentFrame);
@@ -530,6 +674,19 @@ function setupEventListeners() {
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
     });
+}
+
+// Add this function to parse URL parameters
+function getURLParameter(name) {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get(name);
+}
+
+// Add this function to update the URL without reloading the page
+function updateURL(dataset) {
+    const url = new URL(window.location);
+    url.searchParams.set('dataset', dataset);
+    window.history.replaceState({}, '', url);
 }
 
 function setCrossSectionMode(mode) {
@@ -571,14 +728,24 @@ function animate(time = 0) {
 
 // Start the application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
+    // Check for dataset parameter in URL
+    const urlDataset = getURLParameter('dataset');
+    if (urlDataset) {
+        const csvFile = urlDataset + '.csv';
+        // Check if the dataset exists in the select options
+        const option = Array.from(datasetSelect.options).find(opt => opt.value === csvFile);
+        if (option) {
+            currentDataset = csvFile;
+            datasetSelect.value = csvFile;
+        }
+    }
+    
     // Detect iOS
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     console.log('Running on iOS:', isIOS);
     
     // Add iOS-specific handling
     if (isIOS) {
-        // Reduce quality for iOS
-        // maxPoints = Math.min(maxPoints, 2000); // Further reduced for iOS smooth performance
         console.log('iOS detected: reducing max points to', maxPoints);
     }
     
@@ -589,3 +756,14 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('Failed to initialize 3D visualization. Your device may not support WebGL.');
     }
 });
+
+function showLegend() {
+    createLegend();
+}
+
+function hideLegend() {
+    const legend = document.getElementById('color-legend');
+    if (legend) {
+        legend.remove();
+    }
+}
