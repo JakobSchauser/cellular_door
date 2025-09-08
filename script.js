@@ -243,6 +243,9 @@ function updateGizmoOrientation() {
 }
 
 async function loadCSVData() {
+    // Show loading screen at the start
+    showLoadingScreen();
+    
     try {
         const response = await fetch(`${currentDataset}?v=${Date.now()}`, {
             method: 'GET',
@@ -385,7 +388,11 @@ async function loadCSVData() {
         
         createPointCloud();
         
+        // Hide loading screen after everything is ready
+        setTimeout(hideLoadingScreen, 200); // Small delay to ensure rendering is complete
+        
     } catch (error) {
+        hideLoadingScreen(); // Hide loading screen on error
         console.error('Error loading CSV:', error);
         alert(`Error loading ${currentDataset} file. Make sure it exists in the same directory.`);
     }
@@ -596,7 +603,7 @@ function setupEventListeners() {
     datasetSelect.addEventListener('change', (e) => {
         currentDataset = e.target.value;
         updateURL(currentDataset.replace('.csv', '')); // Update URL
-        loadCSVData();
+        loadCSVData(); // This will now show the loading screen automatically
     });
 
     playBtn.addEventListener('click', () => {
@@ -660,6 +667,12 @@ function setupEventListeners() {
             showLegend();
         } else {
             hideLegend();
+            // Reset all cell types to visible when turning off color mode
+            if (window.visibleTypes) {
+                Object.keys(window.visibleTypes).forEach(typeValue => {
+                    window.visibleTypes[typeValue] = true;
+                });
+            }
         }
         
         // Update the current frame to apply the color changes
@@ -765,5 +778,75 @@ function hideLegend() {
     const legend = document.getElementById('color-legend');
     if (legend) {
         legend.remove();
+    }
+}
+
+// Add loading screen functions
+function showLoadingScreen() {
+    // Remove existing loading screen if it exists
+    const existingLoader = document.getElementById('loading-screen');
+    if (existingLoader) {
+        existingLoader.remove();
+    }
+
+    const loadingScreen = document.createElement('div');
+    loadingScreen.id = 'loading-screen';
+    loadingScreen.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(17, 17, 17, 0.9);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 10000;
+        color: white;
+        font-family: Arial, sans-serif;
+    `;
+
+    const spinner = document.createElement('div');
+    spinner.style.cssText = `
+        width: 40px;
+        height: 40px;
+        border: 4px solid #333;
+        border-top: 4px solid #90EE90;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 20px;
+    `;
+
+    const message = document.createElement('div');
+    message.textContent = 'The visualization is being prepared...';
+    message.style.cssText = `
+        font-size: 18px;
+        text-align: center;
+        color: #90EE90;
+    `;
+
+    // Add CSS animation for the spinner
+    if (!document.getElementById('spinner-animation')) {
+        const style = document.createElement('style');
+        style.id = 'spinner-animation';
+        style.textContent = `
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    loadingScreen.appendChild(spinner);
+    loadingScreen.appendChild(message);
+    document.body.appendChild(loadingScreen);
+}
+
+function hideLoadingScreen() {
+    const loadingScreen = document.getElementById('loading-screen');
+    if (loadingScreen) {
+        loadingScreen.remove();
     }
 }
